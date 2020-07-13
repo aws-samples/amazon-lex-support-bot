@@ -1,7 +1,7 @@
 # Build a Support Bot using Amazon Lex
 
 
-#### Created by Rumi Olsen (rumi@amazon.com) and Ryan Vanderwerf (ryvan@amazon.com)
+###### Created by Rumi Olsen (rumi@amazon.com) and Ryan Vanderwerf (ryvan@amazon.com)
 
 ## What is Amazon Lex?
 
