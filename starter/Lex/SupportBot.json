@@ -1,0 +1,243 @@
+{
+  "metadata": {
+    "schemaVersion": "1.0",
+    "importType": "LEX",
+    "importFormat": "JSON"
+  },
+  "resource": {
+    "name": "SupportBot",
+    "version": "1",
+    "intents": [
+      {
+        "rejectionStatement": {
+          "messages": [
+            {
+              "contentType": "PlainText",
+              "content": "Ok well have a nice day let us know if you change your mind"
+            }
+          ]
+        },
+        "name": "Open_Support_Case",
+        "version": "3",
+        "fulfillmentActivity": {
+          "codeHook": {
+            "uri": "",
+            "messageVersion": "1.0"
+          },
+          "type": "CodeHook"
+        },
+        "sampleUtterances": [
+          "I would like to open a support ticket",
+          "I want to open a support case",
+          "I have a problem",
+          "Open a support case",
+          "Can you open a support ticket",
+          "Open a ticket",
+          "Create a ticket",
+          "Can you help"
+        ],
+        "slots": [
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.DATE",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "When would you like to drop off?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 5,
+            "name": "dropoff_date"
+          },
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.US_FIRST_NAME",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "Can I have your first name to attach to the support case?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 1,
+            "name": "first_name"
+          },
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.US_LAST_NAME",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "Can I also have your last name ?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 2,
+            "name": "last_name"
+          },
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.AlphaNumeric",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "Can you give me more details on that?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 4,
+            "name": "problem_desc"
+          },
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.AlphaNumeric",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "What seems to be the problem?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 3,
+            "name": "problem_title"
+          }
+        ],
+        "confirmationPrompt": {
+          "messages": [
+            {
+              "contentType": "PlainText",
+              "content": "I got it. Do you want to open a support case with the title of {problem_title}?"
+            }
+          ],
+          "maxAttempts": 3
+        }
+      },
+      {
+        "name": "Check_Ticket_Status",
+        "version": "4",
+        "fulfillmentActivity": {
+          "codeHook": {
+            "uri": "",
+            "messageVersion": "1.0"
+          },
+          "type": "CodeHook"
+        },
+        "sampleUtterances": [
+          "I would like to check my ticket status",
+          "please check status of ticket {ticket_id}",
+          "Please tell me the status of ticket {ticket_id}",
+          "what is the status of my ticket",
+          "tell me the status of my ticket"
+        ],
+        "slots": [
+          {
+            "sampleUtterances": [],
+            "slotType": "AMAZON.NUMBER",
+            "slotConstraint": "Required",
+            "valueElicitationPrompt": {
+              "messages": [
+                {
+                  "contentType": "PlainText",
+                  "content": "What is the ID number of your support ticket?"
+                }
+              ],
+              "maxAttempts": 2
+            },
+            "priority": 1,
+            "name": "ticket_id"
+          }
+        ]
+      },
+      {
+        "name": "Thank_you_Intent",
+        "version": "3",
+        "fulfillmentActivity": {
+          "codeHook": {
+            "uri": "",
+            "messageVersion": "1.0"
+          },
+          "type": "CodeHook"
+        },
+        "sampleUtterances": [
+          "Thanks",
+          "thx",
+          "Thank you"
+        ],
+        "slots": []
+      },
+      {
+        "name": "Hello_Intent",
+        "version": "3",
+        "fulfillmentActivity": {
+          "codeHook": {
+            "uri": "",
+            "messageVersion": "1.0"
+          },
+          "type": "CodeHook"
+        },
+        "sampleUtterances": [
+          "hello",
+          "hello there",
+          "bro",
+          "dude",
+          "hey",
+          "hey bro",
+          "hey dude",
+          "hey man",
+          "hey there",
+          "hi",
+          "hi there",
+          "yo",
+          "you there"
+        ],
+        "slots": [],
+        "conclusionStatement": {
+          "messages": [
+            {
+              "groupNumber": 1,
+              "contentType": "PlainText",
+              "content": "OK, Tell me what the case title you'd like."
+            }
+          ]
+        }
+      }
+    ],
+    "voiceId": "Joanna",
+    "childDirected": false,
+    "locale": "en-US",
+    "idleSessionTTLInSeconds": 120,
+    "clarificationPrompt": {
+      "messages": [
+        {
+          "contentType": "PlainText",
+          "content": "Sorry, can you please repeat that?"
+        }
+      ],
+      "maxAttempts": 5
+    },
+    "abortStatement": {
+      "messages": [
+        {
+          "contentType": "PlainText",
+          "content": "Sorry, I could not understand. Goodbye."
+        }
+      ]
+    }
+  }
+}

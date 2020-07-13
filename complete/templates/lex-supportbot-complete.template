@@ -1,0 +1,814 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template deploys Lex Bots, Lambda for Lex Fulfilment, DataSource (DynamoDB)
+   **WARNING** This template creates AWS  resources.
+  You will be billed for the AWS resources used if you create a stack  from this template.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Lex bot configuration
+        Parameters:
+          - LexResourcesPrefix
+          - ParentOrigin
+          - GoodIntentThreshold
+      - Label:
+          default: Lex Web UI configuration
+        Parameters:
+          - SourceBucketName
+          - SourceBucketRegion
+          - SourceKeyPrefix
+          - DestinationWebBucketName
+      - Label:
+          default: DynamoDB configuration
+        Parameters:
+          - DynamoDBTableName
+          
+    ParameterLabels:
+      DynamoDBTableName:
+        default: DynamoDB Table name used by Lex Bot Fulfillment Lambdas
+      SourceBucketName:
+        default: SupportBot Assets S3 bucket name
+      SourceBucketRegion:
+        default: SupportBot Assets S3 bucket region
+      SourceKeyPrefix:
+        default: SupportBot Assets S3 key prefix
+      LexResourcesPrefix:
+        default: Prefix for Lex resources
+      ParentOrigin:
+        default: Parent origin
+      DestinationWebBucketName:
+        default: Destination bucket name for Web UI. Leave blank and an bucket with random name will be created for Web UI
+      GoodIntentThreshold:
+        default: threshold of determining if fallback intent machine learning check is good enough between 1 and 0 (decimal)
+
+Parameters:
+  DynamoDBTableName:
+    Type: String
+    Default: SupportCases
+    Description: >-
+      This is the DynamoDB table used to save and retrieve support requests
+  SourceBucketName:
+    Type: String
+    Description: >-
+      The S3 bucket you have created for your copy of the Lex bot assets, if you decide
+      to customize or extend the Quick Start for your own use. The bucket name can
+      include numbers, lowercase letters, uppercase letters, and hyphens, but should
+      not start or end with a hyphen.
+    Default: ryan-supportbot
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: Bucket name can include numbers, lowercase
+      letters, uppercase letters, periods (.), and hyphens (-). It cannot start or
+      end with a hyphen (-) or period (.)
+  SourceBucketRegion:
+    Default: 'us-east-1'
+    Description: 'The AWS Region where the SupportBot bucket (SourceBucketName) is hosted. When using your own bucket, you must specify this value.'
+    Type: String
+  SourceKeyPrefix:
+    Default: 'complete/'
+    Type: String
+    Description: >-
+      The S3 key name prefix used to simulate a folder for your copy of Quick Start
+      assets, if you decide to customize or extend the example for your own use.
+      This prefix can include numbers, lowercase letters, uppercase letters, hyphens,
+      and forward slashes.
+    AllowedPattern: ^[0-9a-zA-Z-/]*$
+    ConstraintDescription: >-
+      Quick Start key prefix can include numbers, lowercase letters, uppercase letters,
+      hyphens (-), and forward slash (/).  Prefix cannot start with a slash but must
+      end with a slash unless it is the empty string.
+  DestinationWebBucketName:
+    Type: String
+    Description: >-
+      If you have a special bucket with public access that you can deploy to, enter it here. If you leave this field blank, a random public read bucket will be created.
+  LexResourcesPrefix:
+    Type: String
+    Description: The prefix that will be added to the Lex bot, intents, and slots.
+      This takes care of limiting Lambda permissions to intents with specific prefix.
+    Default: test
+    AllowedPattern: (^[a-zA-Z]$|^[a-zA-Z][a-zA-Z_]+$)
+  ParentOrigin:
+    Type: String
+    Description: >-
+      The browser origin (for example, http://lexbot.example.com:8080) of an existing
+      site that is allowed to send/receive data and events from the web UI in an iframe
+      setup. This is an optional parameter. If left empty, an S3 bucket will be created
+      to host a sample parent site embedding the webapp as an iframe.
+    Default: http://localhost:8000
+    AllowedPattern: (^Optional$|^https?://[\w\.-]+(:\d+)?$)
+    ConstraintDescription: Empty or valid browser origin
+
+  GoodIntentThreshold:
+    Type: Number
+    Description: >-
+      Decimal value between 1 and 0. If the Sagemaker endpoint is consulting during a FallBack intent (Doesn't
+      understand what the user asked for and can guess the intent) this value determine weather to ACCEPT the Sagemaker intent
+      suggestion, save that utterance as a new sample utterance for that intent (update), and direct the user to that intent.
+    Default: 0.51
+Conditions:
+  NeedsParentOrigin: !Equals
+    - !Ref 'ParentOrigin'
+    - Optional
+  UsingDefaultBucket: !Equals
+    [!Ref SourceBucketName, 'aws-quickstart']
+  CreateDestBucket: !Equals
+    - !Ref 'DestinationWebBucketName'
+    - ''
+
+Rules:
+  LexRegionCheck:
+    Assertions:
+      - Assert: !Contains
+          - - us-east-1
+            - us-west-2
+            - eu-west-1
+            - eu-west-2
+            - ap-southeast-1
+            - ap-southeast-2
+            - eu-central-1
+          - !Ref 'AWS::Region'
+        AssertDescription: Lex is currently supported in us-east-1, us-west-2 and
+          eu-west-1 regions only
+
+Resources:
+  ReadPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3WebBucket
+      PolicyDocument:
+        Statement:
+          - Action: 's3:GetObject'
+            Effect: Allow
+            Resource: !Sub 'arn:aws:s3:::${S3WebBucket}/*'
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    DependsOn: S3WebBucket
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Ref S3WebBucket
+
+  WebsiteCDNNoDomain:
+    Type: AWS::CloudFront::Distribution
+    Condition: CreateDestBucket
+    DependsOn: CloudFrontOriginAccessIdentity
+    Properties:
+      DistributionConfig:
+        Comment: CDN for S3-backed website
+        Enabled: 'true'
+        DefaultCacheBehavior:
+          ForwardedValues:
+            QueryString: 'true'
+          TargetOriginId: s3origin
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        Origins:
+          - DomainName: !GetAtt 'S3WebBucket.DomainName'
+            Id: s3origin
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+
+        PriceClass: PriceClass_100
+
+  DDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+
+      TableName: !Ref DynamoDBTableName
+
+      AttributeDefinitions:
+        -
+          AttributeName: "CaseId"
+          AttributeType: "S"
+        -
+          AttributeName: "CreatedDate"
+          AttributeType: "S"
+
+
+
+      KeySchema:
+        -
+          AttributeName: "CaseId"
+          KeyType: "HASH"
+        -
+          AttributeName: "CreatedDate"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  WriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 15
+      MinCapacity: 5
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DDBTable
+      RoleARN: !GetAtt ScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  ScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:UpdateTable"
+                  - "cloudwatch:PutMetricAlarm"
+                  - "cloudwatch:DescribeAlarms"
+                  - "cloudwatch:GetMetricStatistics"
+                  - "cloudwatch:SetAlarmState"
+                  - "cloudwatch:DeleteAlarms"
+                Resource: "*"
+  WriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  LambdaZipsBucket:
+    Type: AWS::S3::Bucket
+  CopyZipsFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LexCustomLambdaPolicy
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python3.6
+      Role: !GetAtt 'LexCustomLambdaRole.Arn'
+      Timeout: 240
+      Code:
+        ZipFile: !Join
+          - "\n"
+          - - import json
+            - import logging
+            - import threading
+            - import boto3
+            - import cfnresponse
+            - ''
+            - 'def copy_objects(source_bucket, dest_bucket, prefix, objects):'
+            - '   s3 = boto3.client(''s3'')'
+            - '   for o in objects:'
+            - '       key = prefix + o'
+            - '       copy_source = {'
+            - '           ''Bucket'': source_bucket,'
+            - '           ''Key'': key'
+            - '       }'
+            - '       print((''copy_source: %s'' % copy_source))'
+            - '       print((''dest_bucket = %s''%dest_bucket))'
+            - '       print((''key = %s'' %key))'
+            - '       s3.copy_object(CopySource=copy_source, Bucket=dest_bucket,'
+            - '             Key=key)'
+            - ''
+            - 'def delete_objects(bucket, prefix, objects):'
+            - '   s3 = boto3.client(''s3'')'
+            - '   objects = {''Objects'': [{''Key'': prefix + o} for o in objects]}'
+            - '   s3.delete_objects(Bucket=bucket, Delete=objects)'
+            - ''
+            - 'def timeout(event, context):'
+            - '   logging.error(''Execution is about to time out, sending failure
+              response to CloudFormation'')'
+            - '   cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)'
+            - ''
+            - 'def handler(event, context):'
+            - '   # make sure we send a failure to CloudFormation if the function'
+            - '   # is going to timeout'
+            - '   timer = threading.Timer((context.get_remaining_time_in_millis()'
+            - '             / 1000.00) - 0.5, timeout, args=[event, context])'
+            - '   timer.start()'
+            - '   print((''Received event: %s'' % json.dumps(event)))'
+            - '   status = cfnresponse.SUCCESS'
+            - '   try:'
+            - '       source_bucket = event[''ResourceProperties''][''SourceBucket'']'
+            - '       dest_bucket = event[''ResourceProperties''][''DestBucket'']'
+            - '       prefix = event[''ResourceProperties''][''Prefix'']'
+            - '       objects = event[''ResourceProperties''][''Objects'']'
+            - '       if event[''RequestType''] == ''Delete'':'
+            - '           delete_objects(dest_bucket, prefix, objects)'
+            - '       else:'
+            - '           copy_objects(source_bucket, dest_bucket, prefix, objects)'
+            - '   except Exception as e:'
+            - '       logging.error(''Exception: %s'' % e, exc_info=True)'
+            - '       status = cfnresponse.FAILED'
+            - '   finally:'
+            - '       timer.cancel()'
+            - '       cfnresponse.send(event, context, status, {}, None)'
+            - ''
+  CopyZips:
+    Type: Custom::CopyZips
+    Properties:
+      ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
+      DestBucket: !Ref 'LambdaZipsBucket'
+      SourceBucket: !If [UsingDefaultBucket, !Sub '${SourceBucketName}-${AWS::Region}', !Ref SourceBucketName]
+      Prefix: !Ref 'SourceKeyPrefix'
+      Objects:
+        - packages/lambda_functions/Check_Ticket_Status.zip
+        - packages/lambda_functions/Hello_Intent.zip
+        - packages/lambda_functions/Check_Ticket_Status.zip
+        - packages/lambda_functions/lex_custom_lambda.zip
+        - packages/lambda_functions/Check_Ticket_Status.zip
+        - packages/lambda_functions/Manage_Ticket.zip
+        - packages/lambda_functions/Check_Ticket_Status_Validation.zip
+        - packages/lambda_functions/Open_Support_Case_Intent.zip
+        - packages/lambda_functions/Thank_You_Intent.zip
+        - packages/lambda_functions/FallbackIntent.zip
+  S3WebBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      AccessControl: BucketOwnerFullControl
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      CorsConfiguration: !If
+        - NeedsParentOrigin
+        - !Ref 'AWS::NoValue'
+        - CorsRules:
+            - AllowedMethods:
+                - GET
+              AllowedOrigins:
+                - !Ref 'ParentOrigin'
+  CognitoUserPool:
+    DependsOn: S3WebBucket
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'lex_chatbot_userpool_${AWS::StackName}'
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoUserPool
+    Properties:
+      UserPoolId: !Ref 'CognitoUserPool'
+      GenerateSecret: false
+  CognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    DependsOn: CognitoUserPoolClient
+    Properties:
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders:
+        - ClientId: !Ref 'CognitoUserPoolClient'
+          ProviderName: !GetAtt 'CognitoUserPool.ProviderName'
+  AuthRole:
+    Type: AWS::IAM::Role
+    DependsOn: CognitoIdentityPool
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - cognito-identity.amazonaws.com
+            Action:
+              - sts:AssumeRoleWithWebIdentity
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                cognito-identity.amazonaws.com:aud: !Ref 'CognitoIdentityPool'
+              ForAnyValue:StringLike:
+                cognito-identity.amazonaws.com:amr: authenticated
+  AuthPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: AuthRole
+    Properties:
+      PolicyName: !Sub 'cognito_auth_policy_${AWS::Region}_${AWS::StackName}'
+      Roles:
+        - !Ref 'AuthRole'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - mobileanalytics:PutEvents
+              - cognito-sync:*
+              - cognito-identity:*
+            Resource:
+              - !Sub 'arn:aws:cognito-sync:${AWS::Region}:${AWS::AccountId}:identitypool/${CognitoIdentityPool}/*'
+  UnAuthRole:
+    Type: AWS::IAM::Role
+    DependsOn: CognitoIdentityPool
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonPollyReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonLexRunBotsOnly
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - cognito-identity.amazonaws.com
+            Action:
+              - sts:AssumeRoleWithWebIdentity
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                cognito-identity.amazonaws.com:aud: !Ref 'CognitoIdentityPool'
+              ForAnyValue:StringLike:
+                cognito-identity.amazonaws.com:amr: unauthenticated
+  UnAuthPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: UnAuthRole
+    Properties:
+      PolicyName: !Sub 'cog_pol_${AWS::Region}_${AWS::StackName}'
+      Roles:
+        - !Ref 'UnAuthRole'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - mobileanalytics:PutEvents
+              - cognito-sync:*
+            Resource:
+              - !Sub 'arn:aws:cognito-sync:${AWS::Region}:${AWS::AccountId}:identitypool/${CognitoIdentityPool}/*'
+  CognitoIdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    DependsOn:
+      - AuthPolicy
+      - UnAuthPolicy
+    Properties:
+      IdentityPoolId: !Ref 'CognitoIdentityPool'
+      Roles:
+        authenticated: !GetAtt 'AuthRole.Arn'
+        unauthenticated: !GetAtt 'UnAuthRole.Arn'
+  LexFulfillmentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  LexFulfillmentLambdaPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: LexFulfillmentLambdaRole
+    Properties:
+      PolicyName: !Sub 'lex_lambda_${AWS::Region}_${AWS::StackName}'
+      Roles:
+        - !Ref 'LexFulfillmentLambdaRole'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - dynamodb:PutItem
+              - dynamodb:DeleteItem
+              - dynamodb:UpdateItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - sagemaker:InvokeEndpoint
+              - lex:GetIntent
+              - lex:PutIntent
+            Resource: '*'
+  CheckTicketStatusLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Check_Ticket_Status.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+  HelloIntentLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Hello_Intent.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+
+  FallbackIntentLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/FallbackIntent.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+          GoodIntentThreshold: !Ref 'GoodIntentThreshold'
+          Sagemaker_endpoint_name: 'Change Me'
+
+  ThankYouIntentLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Thank_You_Intent.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+
+  ManageTicketLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Manage_Ticket.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+  CheckTicketStatusValidationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Check_Ticket_Status_Validation.zip'
+      Runtime: python3.6
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+  OpenSupportCaseIntentLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexFulfillmentLambdaRole
+      - CopyZips
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt 'LexFulfillmentLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/Open_Support_Case_Intent.zip'
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          DynamoDB_Table_Name: !Ref 'DynamoDBTableName'
+
+  LexLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: CheckTicketStatusLambda
+    Properties:
+      FunctionName: !GetAtt 'CheckTicketStatusLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission1:
+    Type: AWS::Lambda::Permission
+    DependsOn: HelloIntentLambda
+    Properties:
+      FunctionName: !GetAtt 'HelloIntentLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission2:
+    Type: AWS::Lambda::Permission
+    DependsOn: ManageTicketLambda
+    Properties:
+      FunctionName: !GetAtt 'ManageTicketLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission3:
+    Type: AWS::Lambda::Permission
+    DependsOn: CheckTicketStatusValidationLambda
+    Properties:
+      FunctionName: !GetAtt 'CheckTicketStatusValidationLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission4:
+    Type: AWS::Lambda::Permission
+    DependsOn: OpenSupportCaseIntentLambda
+    Properties:
+      FunctionName: !GetAtt 'OpenSupportCaseIntentLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission5:
+    Type: AWS::Lambda::Permission
+    DependsOn: OpenSupportCaseIntentLambda
+    Properties:
+      FunctionName: !GetAtt 'ThankYouIntentLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexLambdaInvokePermission6:
+    Type: AWS::Lambda::Permission
+    DependsOn: FallbackIntentLambda
+    Properties:
+      FunctionName: !GetAtt 'FallbackIntentLambda.Arn'
+      Action: lambda:invokeFunction
+      Principal: lex.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:intent:${LexResourcesPrefix}*:*'
+
+  LexCustomLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  LexCustomLambdaPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: LexCustomLambdaRole
+    Properties:
+      PolicyName: !Join
+        - ''
+        - - !Ref 'LexCustomLambdaRole'
+          - _policy
+      Roles:
+        - !Ref 'LexCustomLambdaRole'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LexPermissions
+            Effect: Allow
+            Action:
+              - lex:*
+            Resource: '*'
+          - Sid: S3Permissions
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+              - s3:PutObjectAcl
+              - s3:ListObjectVersions
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref 'SourceBucketName'
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref 'SourceBucketName'
+                  - /*
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref 'LambdaZipsBucket'
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref 'LambdaZipsBucket'
+                  - /*
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !If [CreateDestBucket, !Ref 'S3WebBucket', !Ref DestinationWebBucketName]
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !If [CreateDestBucket, !Ref 'S3WebBucket', !Ref DestinationWebBucketName]
+                  - /*
+          - Sid: CloudWatchLogsPermissions
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+  CustomLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LexCustomLambdaPolicy
+      - LexLambdaInvokePermission
+      - CopyZips
+    Properties:
+      Handler: lex_custom_lambda.lambda_handler
+      Role: !GetAtt 'LexCustomLambdaRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Sub '${SourceKeyPrefix}packages/lambda_functions/lex_custom_lambda.zip'
+      Runtime: python3.6
+      Timeout: 300
+  LexBot:
+    Type: Custom::LexBot
+    DependsOn: CustomLambda
+    Properties:
+      ServiceToken: !GetAtt 'CustomLambda.Arn'
+      BucketName: !If [UsingDefaultBucket, !Sub '${SourceBucketName}-${AWS::Region}', !Ref SourceBucketName]
+      LexJsonKey: !Sub '${SourceKeyPrefix}assets/lex/SupportBot.json'
+      LexResourcesPrefix: !Ref 'LexResourcesPrefix'
+      FulfillmentLambdaArn: !GetAtt 'CheckTicketStatusLambda.Arn'
+      FulfillmentLambdaArn2: !GetAtt 'HelloIntentLambda.Arn'
+      FulfillmentLambdaArn3: !GetAtt 'ManageTicketLambda.Arn'
+      FulfillmentLambdaArn4: !GetAtt 'CheckTicketStatusValidationLambda.Arn'
+      FulfillmentLambdaArn5: !GetAtt 'OpenSupportCaseIntentLambda.Arn'
+      FulfillmentLambdaArn6: !GetAtt 'ThankYouIntentLambda.Arn'
+      FulfillmentLambdaArn7: !GetAtt 'FallbackIntentLambda.Arn'
+      SourceBucket: !If [UsingDefaultBucket, !Sub '${SourceBucketName}-${AWS::Region}', !Ref SourceBucketName]
+      SourceKey: !Sub '${SourceKeyPrefix}assets/web'
+      DestinationBucket: !If [CreateDestBucket, !Ref 'S3WebBucket', !Ref DestinationWebBucketName]
+      DestinationBucketPermission: !If [CreateDestBucket, 'bucket-owner-full-control', 'public-read']
+      DestinationKey: ''
+      CognitoPoolId: !Ref 'CognitoIdentityPool'
+      UnAuthRole: !Ref 'UnAuthRole'
+Outputs:
+  S3WebsiteURL:
+    Value: !GetAtt 'S3WebBucket.WebsiteURL'
+    Condition: CreateDestBucket
+    Description: S3 Static Website URL - if not using existing destination bucket
+    Export:
+      Name: !Sub '${AWS::StackName}:S3WebsiteURL'
+  LexBotName:
+    Value: !GetAtt 'LexBot.BotName'
+    Description: Lex Bot Name
+    Export:
+      Name: !Sub '${AWS::StackName}:LexBotName'
+  CognitoIdentityPool:
+    Value: !Ref 'CognitoIdentityPool'
+  WebsiteURLCloudFront:
+    Value: !Join
+      - ''
+      - - http://
+        - !GetAtt 'WebsiteCDNNoDomain.DomainName'
+    Description: The deployed web site url. You must add this to the Approved Origins
+      in your Amazon Connect Instance > Application Integration > Click +Add origin
+    Condition: CreateDestBucket

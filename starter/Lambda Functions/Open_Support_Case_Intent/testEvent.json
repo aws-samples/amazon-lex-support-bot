@@ -1,0 +1,59 @@
+{
+  "messageVersion": "1.0",
+  "invocationSource": "FulfillmentCodeHook",
+  "userId": "dq8v66f9bxo1v7jl29wjpqm4bkfigh7f",
+  "sessionAttributes": {},
+  "requestAttributes": "None",
+  "bot": {
+    "name": "SupportBot",
+    "alias": "$LATEST",
+    "version": "$LATEST"
+  },
+  "outputDialogMode": "Text",
+  "currentIntent": {
+    "name": "Open_Support_Case",
+    "slots": {
+      "problem_desc": "My laptop computer's audio isn't working",
+      "last_name": "Olsen",
+      "problem_title": "computer",
+      "first_name": "Rumi"
+    },
+    "slotDetails": {
+      "problem_desc": {
+        "resolutions": [],
+        "originalValue": "My laptop computer's audio isn't working"
+      },
+      "last_name": {
+        "resolutions": [],
+        "originalValue": "Olsen"
+      },
+      "problem_title": {
+        "resolutions": [],
+        "originalValue": "computer"
+      },
+      "first_name": {
+        "resolutions": [],
+        "originalValue": "Rumi"
+      }
+    },
+    "confirmationStatus": "Confirmed"
+  },
+  "inputTranscript": "yes",
+  "recentIntentSummaryView": [
+    {
+      "intentName": "Open_Support_Case",
+      "checkpointLabel": "None",
+      "slots": {
+        "problem_desc": "My laptop computer's audio isn't working",
+        "last_name": "Olsen",
+        "problem_title": "computer",
+        "first_name": "Rumi"
+      },
+      "confirmationStatus": "None",
+      "dialogActionType": "ConfirmIntent",
+      "fulfillmentState": "None",
+      "slotToElicit": "None"
+    }
+  ],
+  "sentimentResponse": "None"
+}
