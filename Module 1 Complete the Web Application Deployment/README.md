@@ -1,4 +1,4 @@
-## Complete the Web Application Deployment
+# Complete the Web Application Deployment
 
 In this section, you will be updating configuration files. 
 
