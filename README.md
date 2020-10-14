@@ -131,3 +131,4 @@ What you learned in this workshop:
 - To delete the SageMaker model endpoint from the console or by going back to the notebook and execute the last cell
 - To stop the SageMaker notebook instance 
 
+## Total Cost: $XYZ
